@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "llm-eval-framework"
+version = "0.1.0"
+description = "Production-grade LLM evaluation framework for RAG systems"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi",
+  "uvicorn",
+  "langchain",
+  "langchain-community",
+  "langchain-openai",
+  "langchain-qdrant",
+  "ragas",
+  "deepeval",
+  "qdrant-client",
+  "openai",
+  "python-dotenv",
+  "pydantic",
+  "pydantic-settings",
+  "pypdf",
+  "tiktoken",
+  "sentence-transformers",
+  "wandb",
+  "streamlit",
+  "plotly",
+  "pandas",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest",
+  "pytest-asyncio",
+  "pytest-cov",
+  "black",
+  "ruff",
+  "mypy",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
