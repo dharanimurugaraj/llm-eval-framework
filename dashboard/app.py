@@ -6,7 +6,7 @@ experiments, and side-by-side comparisons as the framework matures.
 
 import streamlit as st
 
-st.set_page_config(title="LLM Eval Framework", page_icon="📊", layout="wide")
+st.set_page_config(page_title="LLM Eval Framework", page_icon="📊", layout="wide")
 
 st.title("LLM Eval Framework")
 st.caption("Production-grade evaluation framework for RAG quality benchmarking.")

@@ -1,6 +1,6 @@
 [build-system]
 requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.backends.legacy:build"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "llm-eval-framework"
@@ -46,3 +46,6 @@ target-version = "py311"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+
+[tool.setuptools]
+packages = ["backend", "dashboard", "eval", "experiments", "ingestion"]
