@@ -41,6 +41,7 @@ dev = [
   "black",
   "ruff",
   "mypy",
+  "reportlab",
 ]
 
 [tool.ruff]
