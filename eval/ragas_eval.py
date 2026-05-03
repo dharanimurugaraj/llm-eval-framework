@@ -108,10 +108,10 @@ class RAGASEvaluator:
 
         # Gentle concurrency avoids Groq burst rate-limit + long tail timeouts during eval.
         self.run_config = RunConfig(
-            timeout=240,
-            max_workers=8,
-            max_retries=12,
-            seed=42,
+            timeout=120,
+            max_workers=1,      # sequential not parallel — avoids burst
+            max_wait=120,
+            max_retries=3,
         )
 
         print("RAGAS Evaluator ready — 4 metrics configured")

@@ -427,7 +427,8 @@ def page_run_evaluation():
         try:
             with st.spinner(
                 f"Running evaluation: {experiment_name}... "
-                "this takes 2-4 minutes"
+                "this takes 5-8 minutes "
+                "(rate limit delays included)"
             ):
                 import sys
                 sys.path.insert(0, ".")

@@ -70,7 +70,7 @@ class VectorStoreManager:
             collection_name.strip() if collection_name else env_collection
         )
         api_key: str | None = _qdrant_api_key()
-        self.client: QdrantClient = QdrantClient(url=url, api_key=api_key)
+        self.client: QdrantClient = QdrantClient(url=url, api_key=api_key, timeout=60.0)
         self.embedder: EmbeddingManager = EmbeddingManager(model_name=embedding_model)
         print(f"Connected to Qdrant at {url}")
         print(f"Using collection: {self.collection_name}")

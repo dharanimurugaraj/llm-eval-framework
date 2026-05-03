@@ -34,6 +34,7 @@ dependencies = [
   "streamlit",
   "plotly",
   "pandas",
+  "reportlab",
 ]
 
 [project.optional-dependencies]
@@ -44,7 +45,6 @@ dev = [
   "black",
   "ruff",
   "mypy",
-  "reportlab",
 ]
 
 [tool.ruff]

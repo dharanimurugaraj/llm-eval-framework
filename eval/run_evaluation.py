@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -36,8 +37,33 @@ from eval.eval_dataset import EVAL_QUESTIONS  # noqa: E402
 from eval.ragas_eval import RAGASEvaluator  # noqa: E402
 from experiments.tracker import ExperimentTracker  # noqa: E402
 from ingestion.vector_store import VectorStoreManager  # noqa: E402
+from ingestion.pipeline import IngestionPipeline  # noqa: E402
 
 load_dotenv()
+
+
+def run_with_retry(func, max_retries: int = 3, base_delay: float = 30.0):
+    """
+    Retries a function on rate limit errors with exponential backoff.
+    
+    WHY: Groq free tier has 6000 TPM limit. When exceeded, we wait
+    and retry rather than failing the entire evaluation run.
+    
+    base_delay=30 seconds because Groq rate limit windows reset
+    every 60 seconds. 30s gives enough buffer.
+    """
+    for attempt in range(max_retries):
+        try:
+            return func()
+        except Exception as e:
+            if "rate_limit_exceeded" in str(e) or "429" in str(e):
+                wait_time = base_delay * (attempt + 1)
+                print(f"Rate limit hit. Waiting {wait_time}s "
+                      f"before retry {attempt + 1}/{max_retries}...")
+                time.sleep(wait_time)
+            else:
+                raise
+    raise Exception(f"Failed after {max_retries} retries")
 
 
 def _sanitize_for_json(obj: Any) -> Any:
@@ -56,6 +82,8 @@ def run_full_evaluation(
     experiment_name: str = "baseline_recursive_gemini_groq",
     chunking_strategy: str = "recursive",
     embedding_model: str = "gemini",
+    chunk_size: int = 1000,
+    chunk_overlap: int = 200,
     top_k: int = 5,
 ) -> dict[str, Any]:
     """
@@ -81,6 +109,14 @@ def run_full_evaluation(
 
     # Step 1: Load RAG pipeline
     print("Step 1/4: Initializing RAG pipeline...")
+    pipeline = IngestionPipeline(
+        chunking_strategy=chunking_strategy,
+        embedding_model=embedding_model,
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+    )
+    pipeline.run(recreate_collection=True)
+
     vector_store: VectorStoreManager = VectorStoreManager(
         embedding_model=embedding_model
     )
@@ -100,16 +136,25 @@ def run_full_evaluation(
         qtxt: str = row["question"]
         preview = qtxt if len(qtxt) <= 50 else qtxt[:50] + "..."
         print(f"  Q{i + 1}/{total}: {preview}")
-        rag_out = rag_pipeline.run(qtxt)
+        
+        # Add delay between questions to avoid rate limits
+        if i > 0:
+            time.sleep(3)  # 3 second delay between questions
+            
+        rag_out = run_with_retry(
+            lambda q=qtxt: rag_pipeline.run(q)
+        )
         rag_out["ground_truth"] = row["ground_truth"]
         rag_outputs.append(rag_out)
 
     # --- Step 3: Run RAGAS evaluation ---
     print("Step 3/4: Running RAGAS evaluation...")
     evaluator: RAGASEvaluator = RAGASEvaluator()
-    results: dict[str, Any] = evaluator.evaluate(
-        rag_outputs,
-        experiment_name=experiment_name,
+    
+    results: dict[str, Any] = run_with_retry(
+        lambda: evaluator.evaluate(rag_outputs, experiment_name=experiment_name),
+        max_retries=3,
+        base_delay=45.0  # RAGAS makes many LLM calls, needs longer wait
     )
 
     # --- Step 4: Save JSON + optional W&B ---
