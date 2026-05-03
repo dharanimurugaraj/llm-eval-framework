@@ -58,7 +58,9 @@ def test_search_returns_formatted_results(
 
     mock_client = MagicMock()
     mock_client.collection_exists.return_value = True
-    mock_client.search.return_value = [mock_hit]
+    mock_response = MagicMock()
+    mock_response.points = [mock_hit]
+    mock_client.query_points.return_value = mock_response
     mock_client_cls.return_value = mock_client
 
     mgr = VectorStoreManager(collection_name="c1", embedding_model="openai")

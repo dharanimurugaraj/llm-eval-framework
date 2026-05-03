@@ -12,8 +12,8 @@ _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from eval.eval_dataset import EVAL_QUESTIONS, get_eval_questions, get_eval_questions_only
-from eval.ragas_eval import RAGASEvaluator
+from eval.eval_dataset import EVAL_QUESTIONS, get_eval_questions, get_eval_questions_only  # noqa: E402
+from eval.ragas_eval import RAGASEvaluator  # noqa: E402
 
 
 def test_ragas_evaluator_builds_dataset() -> None:

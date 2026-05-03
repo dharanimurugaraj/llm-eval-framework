@@ -7,7 +7,7 @@ experiments can compare which yields better RAGAS retrieval scores.
 from __future__ import annotations
 
 import os
-from typing import Literal
+
 
 from dotenv import load_dotenv
 from langchain_core.documents import Document

@@ -1,12 +1,8 @@
 """Streamlit Dashboard for LLM Evaluation Framework."""
 
 import json
-import os
-import datetime
-from pathlib import Path
 
 import pandas as pd
-import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 import wandb
@@ -86,9 +82,12 @@ def load_wandb_runs() -> list[dict]:
 
 def score_to_label(score: float) -> str:
     """Converts 0-1 score to human readable quality label."""
-    if score >= 0.85: return "🟢 Excellent"
-    if score >= 0.70: return "🟡 Good"
-    if score >= 0.50: return "🟠 Needs Improvement"
+    if score >= 0.85:
+        return "🟢 Excellent"
+    if score >= 0.70:
+        return "🟡 Good"
+    if score >= 0.50:
+        return "🟠 Needs Improvement"
     return "🔴 Poor"
 
 def score_to_delta_color(score: float) -> str:
@@ -612,8 +611,6 @@ def page_ab_comparison():
         score_a = run_a.get(key, 0)
         score_b = run_b.get(key, 0)
         delta = score_a - score_b
-        winner = run_a_name if score_a > score_b else run_b_name
-        tied = abs(delta) < 0.001
 
         col1, col2, col3, col4, col5 = st.columns([2, 1.5, 0.5, 1.5, 2])
         with col1:
