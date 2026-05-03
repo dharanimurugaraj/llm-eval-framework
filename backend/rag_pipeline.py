@@ -1,4 +1,4 @@
-"""End-to-end RAG: retrieve from Qdrant, format context, generate with OpenAI.
+"""End-to-end RAG: retrieve from Qdrant, format context, generate with Groq.
 
 This module is the system under evaluation — RAGAS scores reflect how well
 retrieval and generation perform together.
@@ -11,7 +11,7 @@ from typing import Any
 
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_openai import ChatOpenAI
+from langchain_groq import ChatGroq
 
 from ingestion.vector_store import VectorStoreManager
 
@@ -32,37 +32,40 @@ class RAGPipeline:
     Flow:
 
     Query → :meth:`~ingestion.vector_store.VectorStoreManager.search`
-    → context chunks → format prompt with context → OpenAI LLM → answer
+    → context chunks → format prompt with context → Groq LLM → answer
     """
 
     def __init__(
         self,
         vector_store: VectorStoreManager,
-        model: str = "gpt-4o-mini",
+        model: str = "groq",
         top_k: int = 5,
     ) -> None:
-        """Wire retrieval client and chat model (keys from environment only).
+        """Wire retrieval client and Groq chat model (keys from environment only).
 
-        ``OPENAI_API_KEY`` must be set in ``.env`` for the LLM.
+        ``GROQ_API_KEY`` must be set in ``.env`` for the LLM.
 
         Args:
             vector_store: Phase 2 vector store (Qdrant + embeddings).
-            model: OpenAI chat model id.
+            model: Provider label — currently ``"groq"`` (llama-3.1-8b-instant).
             top_k: Number of chunks to retrieve per query.
 
         Raises:
-            ValueError: If ``OPENAI_API_KEY`` is missing.
+            ValueError: If ``GROQ_API_KEY`` is missing.
         """
-        if not os.getenv("OPENAI_API_KEY"):
+        if not os.getenv("GROQ_API_KEY"):
             raise ValueError(
-                "OPENAI_API_KEY is not set. Add it to your .env for the RAG pipeline."
+                "GROQ_API_KEY is not set. Add it to your .env for the RAG pipeline."
             )
         self.vector_store: VectorStoreManager = vector_store
         self.model: str = model
         self.top_k: int = top_k
         # temperature=0 for deterministic answers — important for reproducible evaluation.
-        self.llm: ChatOpenAI = ChatOpenAI(model=model, temperature=0)
-        print(f"RAG Pipeline ready — model: {model}, top_k: {top_k}")
+        self.llm: ChatGroq = ChatGroq(
+            model="llama-3.1-8b-instant",
+            temperature=0,
+        )
+        print(f"RAG Pipeline ready — model: llama-3.1-8b-instant (Groq), top_k: {top_k}")
 
     def retrieve(self, query: str) -> list[dict[str, Any]]:
         """Retrieve relevant chunks for a query.
@@ -185,11 +188,11 @@ def _ensure_project_root_on_path() -> None:
 if __name__ == "__main__":
     _ensure_project_root_on_path()
 
-    if not os.getenv("OPENAI_API_KEY"):
-        print("Set OPENAI_API_KEY in .env to run the RAG demo.")
+    if not os.getenv("GROQ_API_KEY"):
+        print("Set GROQ_API_KEY in .env to run the RAG demo.")
         raise SystemExit(1)
 
-    vs = VectorStoreManager(embedding_model="openai")
+    vs = VectorStoreManager(embedding_model="gemini")
     stats: dict[str, Any] = vs.get_collection_stats()
     if stats.get("total_vectors", 0) == 0 or stats.get("status") == "not_found":
         print(
@@ -199,7 +202,7 @@ if __name__ == "__main__":
         )
         raise SystemExit(1)
 
-    pipeline = RAGPipeline(vector_store=vs, model="gpt-4o-mini", top_k=5)
+    pipeline = RAGPipeline(vector_store=vs, model="groq", top_k=5)
     queries: list[str] = [
         "What was the revenue growth?",
         "What is the operating margin?",

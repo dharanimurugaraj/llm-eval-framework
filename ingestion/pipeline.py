@@ -36,7 +36,7 @@ class IngestionPipeline:
     def __init__(
         self,
         chunking_strategy: str = "recursive",
-        embedding_model: str = "openai",
+        embedding_model: str = "gemini",
         chunk_size: int = 1000,
         chunk_overlap: int = 200,
         collection_name: str | None = None,
@@ -45,7 +45,9 @@ class IngestionPipeline:
 
         Args:
             chunking_strategy: ``fixed_size``, ``recursive``, or ``semantic``.
-            embedding_model: ``openai`` or ``bge`` for :class:`EmbeddingManager`.
+            embedding_model: ``"gemini"``, ``"openai"``, or ``"bge"`` for
+                :class:`EmbeddingManager`. Default is ``"gemini"``
+                (``gemini-embedding-001``, 3072 dimensions).
             chunk_size: Passed to fixed/recursive chunkers (semantic ignores size).
             chunk_overlap: Overlap for fixed/recursive chunkers.
             collection_name: Optional Qdrant collection override.
@@ -140,7 +142,7 @@ if __name__ == "__main__":
 
     pipe = IngestionPipeline(
         chunking_strategy="recursive",
-        embedding_model="openai",
+        embedding_model="gemini",
     )
     meta: dict[str, Any] = pipe.run(recreate_collection=True)
     print("\nIngestion summary:")

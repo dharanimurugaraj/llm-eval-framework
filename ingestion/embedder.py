@@ -29,6 +29,7 @@ class EmbeddingManager:
 
     - ``openai``: ``text-embedding-3-small`` (API-based, costs money, very good).
     - ``bge``: ``BAAI/bge-m3`` (local, free, strong multilingual performance).
+    - ``gemini``: ``models/gemini-embedding-001`` (Google API-based, 3072-dim).
     """
 
     def __init__(self, model_name: str = "openai") -> None:
@@ -38,10 +39,10 @@ class EmbeddingManager:
         environment (after ``load_dotenv()``).
 
         Args:
-            model_name: ``"openai"`` or ``"bge"``.
+            model_name: ``"openai"``, ``"gemini"``, or ``"bge"``.
 
         Raises:
-            ValueError: If ``model_name`` is unknown or OpenAI is selected without a key.
+            ValueError: If ``model_name`` is unknown or a key-required model is selected without a key.
         """
         key: str = model_name.strip().lower()
         self.model_name: str = key
@@ -54,15 +55,29 @@ class EmbeddingManager:
             self.embeddings: OpenAIEmbeddings | HuggingFaceEmbeddings = OpenAIEmbeddings(
                 model="text-embedding-3-small",
             )
+            self._provider = "openai"
+            self._dimensions = 1536
+        elif key == "gemini":
+            from langchain_google_genai import GoogleGenerativeAIEmbeddings
+            from dotenv import load_dotenv
+            load_dotenv()
+            self.embeddings = GoogleGenerativeAIEmbeddings(
+                model="models/gemini-embedding-001"
+            )
+            self.model_name = "gemini"
+            self._provider = "google"
+            self._dimensions = 3072
         elif key == "bge":
             self.embeddings = HuggingFaceEmbeddings(
                 model_name="BAAI/bge-m3",
                 model_kwargs={"device": "cpu"},
                 encode_kwargs={"normalize_embeddings": False},
             )
+            self._provider = "huggingface"
+            self._dimensions = 1024
         else:
             raise ValueError(
-                f"Unknown model_name: {model_name!r}. Use 'openai' or 'bge'."
+                f"Unknown model_name: {model_name!r}. Use 'openai', 'gemini', or 'bge'."
             )
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
@@ -117,6 +132,13 @@ class EmbeddingManager:
 
     def get_model_info(self) -> dict[str, str | int]:
         """Return static model metadata for logging or UI."""
+        if self.model_name == "gemini":
+            return {
+                "model_name": "gemini-embedding-001",
+                "provider": "google",
+                "dimensions": 3072,
+                "cost_per_token": "free (Gemini API free tier)",
+            }
         if self.model_name == "openai":
             return {
                 "model_name": "text-embedding-3-small",

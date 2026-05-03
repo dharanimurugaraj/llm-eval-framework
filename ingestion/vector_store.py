@@ -84,6 +84,7 @@ class VectorStoreManager:
 
         Vector size is determined by the embedding model:
 
+        - Gemini ``gemini-embedding-001``: 3072 dimensions
         - OpenAI ``text-embedding-3-small``: 1536 dimensions
         - BGE-M3: 1024 dimensions
 
@@ -255,11 +256,11 @@ if __name__ == "__main__":
 
     from ingestion.chunker import RecursiveChunker
 
-    if not os.getenv("OPENAI_API_KEY"):
-        print("Set OPENAI_API_KEY in .env to run the vector store demo.")
+    if not os.getenv("GOOGLE_API_KEY"):
+        print("Set GOOGLE_API_KEY in .env to run the vector store demo.")
         raise SystemExit(1)
 
-    mgr = VectorStoreManager(embedding_model="openai")
+    mgr = VectorStoreManager(embedding_model="gemini")
     mgr.create_collection(recreate=True)
 
     sample_docs: list[Document] = [
