@@ -11,6 +11,8 @@ env/
 .vscode/
 .idea/
 .cursor/
+# sample_data/ is intentionally NOT ignored
+# it contains committed sample PDFs for deployment
 data/raw/*
 data/processed/*
 !data/raw/.gitkeep

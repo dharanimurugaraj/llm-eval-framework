@@ -32,6 +32,18 @@ class DocumentLoader:
             data_dir: Directory to scan for ``*.pdf`` files (default ``data/raw``).
         """
         self.data_dir: Path = Path(data_dir).resolve()
+        
+        # Fallback to sample_data/ if data/raw/ is empty
+        # This handles Streamlit Cloud deployment where
+        # data/raw/ is gitignored
+        if not self.data_dir.exists() or not list(
+            self.data_dir.glob("*.pdf")
+        ):
+            fallback = Path("sample_data").resolve()
+            if fallback.exists() and list(fallback.glob("*.pdf")):
+                print(f"data/raw/ empty — using sample_data/ instead")
+                self.data_dir = fallback
+
         pdf_paths: list[Path] = sorted(self.data_dir.glob("*.pdf"))
         logger.info(
             "DocumentLoader initialized: data_dir=%s, pdf_count=%d",
