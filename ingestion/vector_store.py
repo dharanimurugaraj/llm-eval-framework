@@ -184,15 +184,15 @@ class VectorStoreManager:
             ``page``, ``chunk_strategy``, ``chunk_index``.
         """
         query_embedding: list[float] = self.embedder.embed_query(query)
-        results = self.client.search(
+        response = self.client.query_points(
             collection_name=self.collection_name,
-            query_vector=query_embedding,
+            query=query_embedding,
             limit=top_k,
             with_payload=True,
         )
 
         out: list[dict[str, Any]] = []
-        for hit in results:
+        for hit in response.points:
             payload: dict[str, Any] = dict(hit.payload or {})
             text: str = str(payload.get("text", ""))
             score: float = float(hit.score)
