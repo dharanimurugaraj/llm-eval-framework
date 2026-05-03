@@ -26,33 +26,38 @@ class DocumentLoader:
     """
 
     def __init__(self, data_dir: str = "data/raw") -> None:
-        """Resolve ``data_dir`` to an absolute :class:`pathlib.Path` and log PDF count.
-
-        Args:
-            data_dir: Directory to scan for ``*.pdf`` files (default ``data/raw``).
         """
-        self.data_dir: Path = Path(data_dir).resolve()
+        Initialize DocumentLoader.
         
-        # Fallback to sample_data/ if data/raw/ is empty
-        # This handles Streamlit Cloud deployment where
-        # data/raw/ is gitignored
-        if not self.data_dir.exists() or not list(
-            self.data_dir.glob("*.pdf")
-        ):
-            fallback = Path("sample_data").resolve()
-            if fallback.exists() and list(fallback.glob("*.pdf")):
-                print(f"data/raw/ empty — using sample_data/ instead")
-                self.data_dir = fallback
-
-        pdf_paths: list[Path] = sorted(self.data_dir.glob("*.pdf"))
-        logger.info(
-            "DocumentLoader initialized: data_dir=%s, pdf_count=%d",
-            self.data_dir,
-            len(pdf_paths),
+        Falls back to sample_data/ if data/raw/ is empty.
+        This handles Streamlit Cloud where data/raw/ is gitignored.
+        """
+        self.data_dir = Path(data_dir)
+        
+        # Check if primary directory has PDFs
+        primary_has_pdfs = (
+            self.data_dir.exists() and 
+            len(list(self.data_dir.glob("*.pdf"))) > 0
         )
+        
+        # Fall back to sample_data/ if primary is empty
+        if not primary_has_pdfs:
+            fallback_dir = Path("sample_data")
+            fallback_has_pdfs = (
+                fallback_dir.exists() and
+                len(list(fallback_dir.glob("*.pdf"))) > 0
+            )
+            if fallback_has_pdfs:
+                print(
+                    f"data/raw/ is empty — "
+                    f"falling back to sample_data/"
+                )
+                self.data_dir = fallback_dir
+        
+        pdf_count = len(list(self.data_dir.glob("*.pdf")))
         print(
-            f"[DocumentLoader] data_dir={self.data_dir} — "
-            f"found {len(pdf_paths)} PDF file(s)."
+            f"DocumentLoader initialized — "
+            f"{pdf_count} PDFs in {self.data_dir}"
         )
 
     def load_pdf(self, file_path: str) -> list[Document]:
