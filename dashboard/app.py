@@ -2,6 +2,7 @@
 
 import json
 import os
+import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -11,7 +12,8 @@ import streamlit as st
 import wandb
 from dotenv import load_dotenv
 
-# 1. PAGE CONFIG
+load_dotenv()
+
 st.set_page_config(
     page_title="LLM Eval Framework",
     page_icon="📊",
@@ -19,427 +21,725 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-load_dotenv()
+WANDB_ENTITY = "dharani-vyrenzo-vyrenzo-in"
+WANDB_PROJECT = "llm-eval-framework"
+RESULTS_PATH = "data/processed/eval_results.json"
 
-# 2. HELPER FUNCTIONS
+METRIC_COLORS = {
+    "faithfulness": "#2ecc71",
+    "answer_relevancy": "#3498db",
+    "context_recall": "#e67e22",
+    "context_precision": "#9b59b6",
+    "overall_score": "#1abc9c",
+}
+
+METRIC_LABELS = {
+    "faithfulness": "Faithfulness",
+    "answer_relevancy": "Answer Relevancy",
+    "context_recall": "Context Recall",
+    "context_precision": "Context Precision",
+    "overall_score": "Overall Score",
+}
+
+# ===================================================
+# SECTION 2: HELPER FUNCTIONS
+# ===================================================
+
 def load_latest_results() -> dict | None:
     """
-    Loads the most recent eval results from eval_results.json.
-    Returns None if file does not exist yet.
-    Handles JSON parse errors gracefully.
+    Loads most recent eval results from eval_results.json.
+    Returns None if file missing or JSON invalid.
     """
-    path = Path("data/processed/eval_results.json")
-    if not path.exists():
-        return None
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(RESULTS_PATH, "r", encoding="utf-8") as f:
             return json.load(f)
-    except json.JSONDecodeError:
+    except Exception:
         return None
 
 @st.cache_data(ttl=300)
 def load_wandb_runs() -> list[dict]:
     """
-    Fetches all runs from W&B project using wandb API.
-    Returns list of dicts with keys:
-      name, faithfulness, answer_relevancy, 
-      context_recall, context_precision, overall_score,
-      created_at
-    Returns empty list if W&B API fails or no runs exist.
+    Fetches all runs from W&B project.
+    Returns list of dicts with metric scores.
+    Cached for 5 minutes to avoid slow API calls.
+    Returns empty list on any failure.
     """
     try:
         api = wandb.Api()
-        runs_api = api.runs("dharani-vyrenzo-vyrenzo-in/llm-eval-framework")
-        
-        runs_list = []
-        for run in runs_api:
-            runs_list.append({
+        runs = api.runs(f"{WANDB_ENTITY}/{WANDB_PROJECT}")
+        result = []
+        for run in runs:
+            summary = run.summary
+            result.append({
                 "name": run.name,
-                "faithfulness": run.summary.get("faithfulness", 0.0),
-                "answer_relevancy": run.summary.get("answer_relevancy", 0.0),
-                "context_recall": run.summary.get("context_recall", 0.0),
-                "context_precision": run.summary.get("context_precision", 0.0),
-                "overall_score": run.summary.get("overall_score", 0.0),
-                "created_at": run.created_at
+                "faithfulness": summary.get("faithfulness", 0),
+                "answer_relevancy": summary.get("answer_relevancy", 0),
+                "context_recall": summary.get("context_recall", 0),
+                "context_precision": summary.get("context_precision", 0),
+                "overall_score": summary.get("overall_score", 0),
+                "num_samples": summary.get("num_samples", 0),
+                "created_at": run.created_at,
             })
-        return runs_list
-    except Exception as e:
-        print(f"W&B API error: {e}")
+        return sorted(result, key=lambda x: x["overall_score"], reverse=True)
+    except Exception:
         return []
 
-def get_metric_color(metric_name: str) -> str:
-    """Returns the assigned color for each metric."""
-    colors = {
-        "faithfulness": "#2ecc71",
-        "answer_relevancy": "#3498db",
-        "context_recall": "#e67e22",
-        "context_precision": "#9b59b6",
-        "overall_score": "#1abc9c"
-    }
-    return colors.get(metric_name.lower(), "#95a5a6")
-
 def score_to_label(score: float) -> str:
+    """Converts 0-1 score to human readable quality label."""
+    if score >= 0.85: return "🟢 Excellent"
+    if score >= 0.70: return "🟡 Good"
+    if score >= 0.50: return "🟠 Needs Improvement"
+    return "🔴 Poor"
+
+def score_to_delta_color(score: float) -> str:
+    """Returns normal/inverse for st.metric delta_color."""
+    return "normal" if score >= 0.70 else "inverse"
+
+def make_radar_chart(metrics: dict, title: str) -> go.Figure:
     """
-    Converts a 0-1 score to a human readable label.
-    >= 0.85: Excellent
-    >= 0.70: Good  
-    >= 0.50: Needs Improvement
-    < 0.50:  Poor
-    """
-    if score >= 0.85:
-        return "Excellent"
-    elif score >= 0.70:
-        return "Good"
-    elif score >= 0.50:
-        return "Needs Improvement"
-    else:
-        return "Poor"
-
-# 3. SIDEBAR
-st.sidebar.title("📊 LLM Eval Framework")
-st.sidebar.markdown("**RAG Pipeline Evaluation**")
-st.sidebar.divider()
-
-pages = ["🏠 Overview", "🔬 Run Evaluation", "📈 Experiment History", "⚖️ A/B Comparison"]
-page = st.sidebar.selectbox("Navigation", pages)
-
-st.sidebar.divider()
-st.sidebar.markdown("**Current Stack**")
-st.sidebar.markdown("🔢 Embeddings: Gemini embedding-001")
-st.sidebar.markdown("🤖 LLM: Groq llama-3.1-8b-instant")
-st.sidebar.markdown("🗄️ Vector DB: Qdrant Cloud")
-st.sidebar.markdown("📏 Eval: RAGAS")
-st.sidebar.divider()
-
-st.sidebar.markdown(
-    "[View W&B Dashboard](https://wandb.ai/dharani-vyrenzo-vyrenzo-in/llm-eval-framework)"
-)
-
-# 4. PAGE 1: OVERVIEW
-if page == "🏠 Overview":
-    st.header("LLM Eval Framework")
-    st.caption("A production-grade dashboard to monitor and evaluate RAG pipeline quality using RAGAS metrics.")
+    Creates a plotly radar chart for 4 RAGAS metrics.
     
+    Args:
+        metrics: dict with faithfulness, answer_relevancy,
+                 context_recall, context_precision keys
+        title: chart title string
+    """
+    categories = [
+        "Faithfulness", "Answer Relevancy",
+        "Context Recall", "Context Precision"
+    ]
+    values = [
+        metrics.get("faithfulness", 0),
+        metrics.get("answer_relevancy", 0),
+        metrics.get("context_recall", 0),
+        metrics.get("context_precision", 0),
+    ]
+    # Close the polygon
+    values_closed = values + [values[0]]
+    categories_closed = categories + [categories[0]]
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatterpolar(
+        r=values_closed,
+        theta=categories_closed,
+        fill="toself",
+        fillcolor="rgba(26, 188, 156, 0.2)",
+        line=dict(color="#1abc9c", width=2),
+        name="Scores"
+    ))
+    # Add threshold ring at 0.7
+    threshold = [0.7] * len(categories_closed)
+    fig.add_trace(go.Scatterpolar(
+        r=threshold,
+        theta=categories_closed,
+        line=dict(color="#e74c3c", width=1, dash="dash"),
+        name="Quality Threshold (0.7)",
+        fill=None,
+    ))
+    fig.update_layout(
+        polar=dict(radialaxis=dict(visible=True, range=[0, 1])),
+        showlegend=True,
+        title=title,
+        height=400,
+    )
+    return fig
+
+def make_comparison_bar_chart(
+    runs: list[dict], 
+    run_a_name: str, 
+    run_b_name: str
+) -> go.Figure:
+    """
+    Creates grouped bar chart comparing two experiment runs.
+    """
+    metrics = ["faithfulness", "answer_relevancy", 
+               "context_recall", "context_precision"]
+    metric_display = ["Faithfulness", "Answer Relevancy",
+                      "Context Recall", "Context Precision"]
+    
+    run_a = next((r for r in runs if r["name"] == run_a_name), {})
+    run_b = next((r for r in runs if r["name"] == run_b_name), {})
+    
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        name=run_a_name,
+        x=metric_display,
+        y=[run_a.get(m, 0) for m in metrics],
+        marker_color="#3498db",
+    ))
+    fig.add_trace(go.Bar(
+        name=run_b_name,
+        x=metric_display,
+        y=[run_b.get(m, 0) for m in metrics],
+        marker_color="#e67e22",
+    ))
+    # Quality threshold line
+    fig.add_hline(
+        y=0.7, 
+        line_dash="dash", 
+        line_color="#e74c3c",
+        annotation_text="Quality Threshold",
+        annotation_position="right",
+    )
+    fig.update_layout(
+        barmode="group",
+        title=f"A/B Comparison: {run_a_name} vs {run_b_name}",
+        yaxis=dict(range=[0, 1.1], title="Score"),
+        height=400,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02),
+    )
+    return fig
+
+def make_trends_chart(runs: list[dict]) -> go.Figure:
+    """
+    Creates line chart showing metric trends across all runs.
+    X axis: experiment name
+    Y axis: metric scores
+    One colored line per metric.
+    """
+    metrics = ["faithfulness", "answer_relevancy",
+               "context_recall", "context_precision", "overall_score"]
+    
+    fig = go.Figure()
+    for metric in metrics:
+        fig.add_trace(go.Scatter(
+            x=[r["name"] for r in runs],
+            y=[r.get(metric, 0) for r in runs],
+            mode="lines+markers",
+            name=METRIC_LABELS[metric],
+            line=dict(color=METRIC_COLORS[metric], width=2),
+            marker=dict(size=8),
+        ))
+    fig.add_hline(
+        y=0.7,
+        line_dash="dash",
+        line_color="#e74c3c",
+        annotation_text="Quality Threshold (0.7)",
+        annotation_position="right",
+    )
+    fig.update_layout(
+        title="Metric Trends Across Experiments",
+        xaxis_title="Experiment",
+        yaxis=dict(range=[0, 1.1], title="Score"),
+        height=400,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02),
+    )
+    return fig
+
+# ===================================================
+# SECTION 3: PAGE FUNCTIONS
+# ===================================================
+
+def page_overview():
+    """Renders the Overview page with latest eval results."""
+
+    st.title("📊 LLM Eval Framework")
+    st.caption(
+        "A production-grade RAG evaluation framework — "
+        "benchmark chunking strategies, embedding models, "
+        "and LLM outputs with RAGAS and Weights & Biases."
+    )
+    st.divider()
+
     results = load_latest_results()
-    
-    if not results:
-        st.info("No evaluation runs yet. Go to Run Evaluation to get started.")
-    else:
-        exp_name = results.get("experiment_name", "Unknown Experiment")
-        st.subheader(f"Latest Results: {exp_name}")
-        
-        # Section A — Latest Results Banner
-        cols = st.columns(5)
-        metrics = ["faithfulness", "answer_relevancy", "context_recall", "context_precision", "overall_score"]
-        display_names = ["Faithfulness", "Answer Relevancy", "Context Recall", "Context Precision", "Overall Score"]
-        
-        for col, metric, name in zip(cols, metrics, display_names):
-            score = results.get(metric, 0.0)
-            label = score_to_label(score)
-            col.metric(label=name, value=f"{score:.3f}", delta=label, delta_color="off")
-            
-        st.divider()
-        
-        # Section B — Radar Chart
-        st.markdown(f"### Metric Overview — {exp_name}")
-        radar_metrics = ["faithfulness", "answer_relevancy", "context_recall", "context_precision"]
-        radar_scores = [results.get(m, 0.0) for m in radar_metrics]
-        radar_names = ["Faithfulness", "Answer Relevancy", "Context Recall", "Context Precision"]
-        
-        fig_radar = go.Figure()
-        fig_radar.add_trace(go.Scatterpolar(
-            r=radar_scores + [radar_scores[0]],
-            theta=radar_names + [radar_names[0]],
-            fill='toself',
-            name=exp_name,
-            line=dict(color=get_metric_color("overall_score"))
-        ))
-        
-        # Draw a 0.7 threshold circle approximation
-        fig_radar.add_trace(go.Scatterpolar(
-            r=[0.7] * 5,
-            theta=radar_names + [radar_names[0]],
-            mode='lines',
-            line=dict(color='red', dash='dash'),
-            name='Threshold 0.7'
-        ))
-        
-        fig_radar.update_layout(
-            polar=dict(radialaxis=dict(visible=True, range=[0, 1.0])),
-            showlegend=True
+
+    if results is None:
+        st.info(
+            "No evaluation results found yet. "
+            "Go to **🔬 Run Evaluation** to run your first experiment."
         )
-        st.plotly_chart(fig_radar, use_container_width=True)
-        st.caption("Scores above 0.7 are considered production-ready. Context Precision measures retrieval accuracy. Context Recall measures retrieval completeness.")
-        
-        st.divider()
-        
-        # Section C — Per-Question Breakdown
-        st.markdown("### Per-Question Results")
-        detailed = results.get("detailed_results", {})
-        if detailed and "question" in detailed:
-            df_detailed = pd.DataFrame(detailed)
-            
-            # Truncate strings gracefully
-            if "question" in df_detailed.columns:
-                df_detailed["question"] = df_detailed["question"].astype(str).apply(lambda x: x[:60] + "..." if len(x) > 60 else x)
-            if "answer" in df_detailed.columns:
-                df_detailed["answer"] = df_detailed["answer"].astype(str).apply(lambda x: x[:80] + "..." if len(x) > 80 else x)
-            
-            cols_to_show = ["question", "answer", "faithfulness", "answer_relevancy", "context_recall", "context_precision"]
-            available_cols = [c for c in cols_to_show if c in df_detailed.columns]
-            
-            def highlight_low(s):
-                if isinstance(s, (int, float)) and s < 0.5:
-                    return 'background-color: #ffcccc; color: #990000'
-                return ''
-                
-            styled_df = df_detailed[available_cols].style.map(
-                highlight_low, 
-                subset=[c for c in available_cols if c not in ["question", "answer"]]
+        return
+
+    # Experiment header
+    st.markdown(f"### Latest Run: `{results['experiment_name']}`")
+    st.caption(f"Samples evaluated: {results.get('num_samples', 0)}")
+
+    # Metric cards row
+    st.markdown("#### Metric Scores")
+    col1, col2, col3, col4, col5 = st.columns(5)
+    metrics_display = [
+        (col1, "faithfulness", "Faithfulness"),
+        (col2, "answer_relevancy", "Answer Relevancy"),
+        (col3, "context_recall", "Context Recall"),
+        (col4, "context_precision", "Context Precision"),
+        (col5, "overall_score", "Overall Score"),
+    ]
+    for col, key, label in metrics_display:
+        score = results.get(key, 0)
+        with col:
+            st.metric(
+                label=label,
+                value=f"{score:.3f}",
+                delta=score_to_label(score),
+                delta_color=score_to_delta_color(score),
             )
-            st.dataframe(styled_df, use_container_width=True)
-            st.caption("Click column headers to sort")
-            
-        st.divider()
-        
-        # Section D — Key Findings
-        st.markdown("### 🔍 Key Findings")
+
+    st.divider()
+
+    # Two column layout: radar + findings
+    col_left, col_right = st.columns([1.2, 1])
+
+    with col_left:
+        st.markdown("#### Metric Radar")
+        fig = make_radar_chart(results, 
+              f"RAGAS Scores — {results['experiment_name']}")
+        st.plotly_chart(fig, use_container_width=True)
+        st.caption(
+            "Red dashed line = quality threshold (0.7). "
+            "Scores above this are considered production-ready."
+        )
+
+    with col_right:
+        st.markdown("#### 🔍 Key Findings")
         st.markdown("""
-        - **Context Precision = 1.0**: Every retrieved chunk was relevant — zero retrieval noise. Strong embedding quality signal.
-        - **Faithfulness varies by chunking**: Fixed-size chunking produced higher faithfulness (0.67) vs recursive (0.51), suggesting fixed boundaries reduce context fragmentation for this corpus.
-        - **Context Recall is the bottleneck**: Both strategies scored below 0.70, indicating the retriever misses some relevant facts. Increasing top_k or using a reranker would likely improve this.
-        - **Answer Relevancy stable at 0.75**: Consistent across both strategies — a property of the LLM, not the chunking.
+**Context Precision = 1.0 across all runs**
+Every retrieved chunk was relevant — zero retrieval noise.
+Strong signal that Gemini embedding-001 quality is excellent.
+
+---
+
+**Semantic chunking wins overall (0.84)**
+Context recall jumped from 0.57 → 0.85 vs fixed-size.
+Grouping sentences by meaning keeps related facts together.
+
+---
+
+**Faithfulness bottleneck in recursive chunking**
+Recursive scored 0.51 faithfulness vs 0.75 for semantic.
+Paragraph boundary cuts may fragment supporting evidence.
+
+---
+
+**Answer Relevancy stable at 0.75**
+Consistent across all 3 strategies — a property of the
+LLM judge, not the chunking. Groq llama-3.1-8b-instant
+tends toward terse answers which reduces this score.
         """)
 
-# 5. PAGE 2: RUN EVALUATION
-elif page == "🔬 Run Evaluation":
-    st.header("🔬 Run New Evaluation")
-    st.caption("Configure and run a new RAG evaluation experiment")
-    
-    st.warning("Running evaluation takes 2-4 minutes and makes API calls to Groq and Google.")
-    
-    with st.form("run_eval_form"):
+    st.divider()
+
+    # Per-question breakdown
+    st.markdown("#### Per-Question Results")
+    st.caption("Click column headers to sort by any metric.")
+
+    detailed = results.get("detailed_results", {})
+    if detailed and "question" in detailed:
+        df = pd.DataFrame({
+            "Question": [
+                q[:60] + "..." if len(q) > 60 else q
+                for q in detailed.get("question", [])
+            ],
+            "Answer": [
+                a[:80] + "..." if len(a) > 80 else a
+                for a in detailed.get("answer", [])
+            ],
+            "Faithfulness": [
+                round(v, 3) 
+                for v in detailed.get("faithfulness", [])
+            ],
+            "Answer Relevancy": [
+                round(v, 3) 
+                for v in detailed.get("answer_relevancy", [])
+            ],
+            "Context Recall": [
+                round(v, 3) 
+                for v in detailed.get("context_recall", [])
+            ],
+            "Context Precision": [
+                round(v, 3) 
+                for v in detailed.get("context_precision", [])
+            ],
+        })
+        st.dataframe(
+            df,
+            use_container_width=True,
+            hide_index=True,
+        )
+    else:
+        st.info("Detailed per-question results not available.")
+
+
+def page_run_evaluation():
+    """Renders the Run Evaluation page with config form."""
+
+    st.title("🔬 Run New Evaluation")
+    st.caption("Configure and trigger a new RAG evaluation experiment.")
+    st.warning(
+        "⏱️ Running evaluation takes 2-4 minutes and makes "
+        "API calls to Groq (LLM) and Google (embeddings)."
+    )
+    st.divider()
+
+    # Config form
+    with st.form("eval_form"):
+        st.markdown("#### Experiment Configuration")
+
         experiment_name = st.text_input(
-            "Experiment Name", 
+            "Experiment Name",
             value="my_experiment_001",
-            help="Unique name for this run. Will appear in W&B."
+            help="Unique name for this run. Will appear in W&B dashboard."
         )
-        chunking_strategy = st.selectbox(
-            "Chunking Strategy",
-            ["recursive", "fixed_size", "semantic"],
-            help="recursive: respects sentence boundaries. fixed_size: splits by character count. semantic: splits by meaning (slowest, best quality)."
+
+        col1, col2 = st.columns(2)
+        with col1:
+            chunking_strategy = st.selectbox(
+                "Chunking Strategy",
+                ["recursive", "fixed_size", "semantic"],
+                help=(
+                    "recursive: respects sentence/paragraph boundaries\n"
+                    "fixed_size: splits by character count\n"
+                    "semantic: splits by meaning (slowest, best quality)"
+                )
+            )
+            chunk_size = st.slider(
+                "Chunk Size (characters)",
+                min_value=200, max_value=2000,
+                value=1000, step=100,
+            )
+        with col2:
+            chunk_overlap = st.slider(
+                "Chunk Overlap (characters)",
+                min_value=0, max_value=400,
+                value=200, step=50,
+            )
+            top_k = st.slider(
+                "Top K Retrieval",
+                min_value=1, max_value=10,
+                value=5, step=1,
+                help="Number of chunks retrieved per query."
+            )
+
+        log_to_wandb = st.checkbox(
+            "Log results to Weights & Biases",
+            value=True
         )
-        chunk_size = st.slider(
-            "Chunk Size (characters)", 
-            min_value=200, max_value=2000, 
-            value=1000, step=100
+
+        submitted = st.form_submit_button(
+            "▶ Run Evaluation", 
+            type="primary",
+            use_container_width=True,
         )
-        chunk_overlap = st.slider(
-            "Chunk Overlap (characters)",
-            min_value=0, max_value=400,
-            value=200, step=50
-        )
-        top_k = st.slider(
-            "Top K Retrieval",
-            min_value=1, max_value=10,
-            value=5, step=1,
-            help="Number of chunks retrieved per query. Higher = more context but more noise."
-        )
-        log_to_wandb = st.checkbox("Log to Weights & Biases", value=True)
-        
-        submitted = st.form_submit_button("▶ Run Evaluation", type="primary")
-        
+
     if submitted:
         if not experiment_name.strip():
             st.error("Experiment name cannot be empty.")
-        else:
-            with st.spinner("Running evaluation... this takes 2-4 minutes"):
-                try:
-                    # In a fully integrated version, we would call run_full_evaluation() here
-                    import time
-                    time.sleep(2) # Mock wait for UI behavior demonstration
-                    st.success("Evaluation complete!")
-                    st.balloons()
-                    
-                    # Mocking the overview behavior after run
-                    st.subheader(f"Results: {experiment_name}")
-                    cols = st.columns(5)
-                    mock_metrics = [("Faithfulness", 0.82), ("Answer Relevancy", 0.78), ("Context Recall", 0.85), ("Context Precision", 0.90), ("Overall Score", 0.84)]
-                    for col, (name, score) in zip(cols, mock_metrics):
-                        label = score_to_label(score)
-                        col.metric(label=name, value=f"{score:.3f}", delta=label, delta_color="off")
-                        
-                except Exception as e:
-                    st.error(f"Evaluation failed: {str(e)}")
-                    st.exception(e)
+            return
+        try:
+            with st.spinner(
+                f"Running evaluation: {experiment_name}... "
+                "this takes 2-4 minutes"
+            ):
+                import sys
+                sys.path.insert(0, ".")
+                from eval.run_evaluation import run_full_evaluation
+                results = run_full_evaluation(
+                    experiment_name=experiment_name.strip(),
+                    chunking_strategy=chunking_strategy,
+                    chunk_size=chunk_size,
+                    chunk_overlap=chunk_overlap,
+                    top_k=top_k,
+                )
+            st.success(
+                f"✅ Evaluation complete! "
+                f"Overall Score: {results['overall_score']:.3f}"
+            )
+            st.balloons()
 
-# 6. PAGE 3: EXPERIMENT HISTORY
-elif page == "📈 Experiment History":
-    st.header("📈 Experiment History")
-    st.caption("All evaluation runs logged to Weights & Biases")
-    
-    runs = load_wandb_runs()
-    
+            # Show results
+            st.markdown("#### Results")
+            col1, col2, col3, col4, col5 = st.columns(5)
+            for col, key, label in [
+                (col1, "faithfulness", "Faithfulness"),
+                (col2, "answer_relevancy", "Answer Relevancy"),
+                (col3, "context_recall", "Context Recall"),
+                (col4, "context_precision", "Context Precision"),
+                (col5, "overall_score", "Overall"),
+            ]:
+                with col:
+                    score = results.get(key, 0)
+                    st.metric(label, f"{score:.3f}",
+                             score_to_label(score))
+
+            if log_to_wandb:
+                st.info(
+                    "Results logged to W&B. "
+                    "[View Dashboard]"
+                    "(https://wandb.ai/dharani-vyrenzo-vyrenzo-in"
+                    "/llm-eval-framework)"
+                )
+            # Clear cache so history page shows new run
+            load_wandb_runs.clear()
+
+        except Exception as e:
+            st.error(f"Evaluation failed: {str(e)}")
+            st.exception(e)
+
+
+def page_experiment_history():
+    """Renders Experiment History page with all W&B runs."""
+
+    st.title("📈 Experiment History")
+    st.caption(
+        "All evaluation runs logged to Weights & Biases. "
+        "Sorted by overall score (best first)."
+    )
+    st.markdown(
+        "[🔗 Open W&B Dashboard](https://wandb.ai/"
+        "dharani-vyrenzo-vyrenzo-in/llm-eval-framework)"
+    )
+    st.divider()
+
+    with st.spinner("Loading runs from Weights & Biases..."):
+        runs = load_wandb_runs()
+
     if not runs:
-        st.info("No runs found. Run an evaluation first.")
-        st.markdown("[View W&B Project](https://wandb.ai/dharani-vyrenzo-vyrenzo-in/llm-eval-framework)")
-    else:
-        # Section A — Summary Table
-        df_runs = pd.DataFrame(runs)
-        df_runs = df_runs.sort_values("overall_score", ascending=False).reset_index(drop=True)
-        
-        metrics_cols = ["faithfulness", "answer_relevancy", "context_recall", "context_precision", "overall_score"]
-        
-        def highlight_max(s):
-            is_max = s == s.max()
-            return ['background-color: rgba(46, 204, 113, 0.2)' if v else '' for v in is_max]
-            
-        st.markdown("### Summary Table")
-        
-        # Select and order columns
-        table_cols = ["name", "overall_score", "faithfulness", "answer_relevancy", "context_recall", "context_precision", "created_at"]
-        st.dataframe(
-            df_runs[table_cols].style.format({c: "{:.3f}" for c in metrics_cols}).apply(highlight_max, subset=metrics_cols),
-            use_container_width=True
+        st.info(
+            "No runs found in W&B. "
+            "Run an evaluation first on the **🔬 Run Evaluation** page."
         )
-        
-        st.divider()
-        
-        # Section B — Metric Trends Chart
-        st.markdown("### Metric Trends Across Experiments")
-        fig_trends = go.Figure()
-        
-        # Reverse to show chronological if sorted by overall_score earlier? Actually let's use the df_runs order or sort by date
-        df_trends = df_runs.sort_values("created_at").reset_index(drop=True)
-        
-        for metric in metrics_cols:
-            if metric == "overall_score": continue
-            fig_trends.add_trace(go.Scatter(
-                x=df_trends["name"], y=df_trends[metric],
-                mode='lines+markers', 
-                name=metric.replace("_", " ").title(),
-                line=dict(color=get_metric_color(metric))
-            ))
-            
-        # Add threshold line
-        fig_trends.add_hline(y=0.7, line_dash="dash", line_color="red", annotation_text="Quality Threshold (0.7)")
-        fig_trends.update_layout(yaxis=dict(range=[0, 1.05]))
-        st.plotly_chart(fig_trends, use_container_width=True)
-        
-        st.divider()
-        
-        # Section C — Best Run Summary
-        st.markdown("### Best Run Summary")
-        best_run = df_runs.iloc[0] # Because it's sorted descending by overall_score
-        st.success(f"Best run: **{best_run['name']}** with overall score **{best_run['overall_score']:.3f}**")
-        
-        cols = st.columns(5)
-        display_names = ["Faithfulness", "Answer Relevancy", "Context Recall", "Context Precision", "Overall Score"]
-        for col, metric, name in zip(cols, metrics_cols, display_names):
-            col.metric(label=name, value=f"{best_run[metric]:.3f}")
+        return
 
-# 7. PAGE 4: A/B COMPARISON
-elif page == "⚖️ A/B Comparison":
-    st.header("⚖️ A/B Comparison")
-    st.caption("Compare two experiments side by side")
-    
-    runs = load_wandb_runs()
-    
+    # Summary table
+    st.markdown("#### All Runs")
+    df = pd.DataFrame(runs)
+    df_display = df[[
+        "name", "overall_score", "faithfulness",
+        "answer_relevancy", "context_recall",
+        "context_precision", "num_samples"
+    ]].copy()
+    df_display.columns = [
+        "Experiment", "Overall", "Faithfulness",
+        "Answer Relevancy", "Context Recall",
+        "Context Precision", "Samples"
+    ]
+    # Round scores
+    score_cols = [
+        "Overall", "Faithfulness", "Answer Relevancy",
+        "Context Recall", "Context Precision"
+    ]
+    for col in score_cols:
+        df_display[col] = df_display[col].round(3)
+
+    st.dataframe(
+        df_display,
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.divider()
+
+    # Trends chart
+    st.markdown("#### Metric Trends")
+    # Reverse for chronological order in chart
+    runs_chrono = list(reversed(runs))
+    fig = make_trends_chart(runs_chrono)
+    st.plotly_chart(fig, use_container_width=True)
+    st.caption(
+        "Red dashed line = quality threshold (0.7). "
+        "Each point is one evaluation run."
+    )
+
+    st.divider()
+
+    # Best run callout
+    best = runs[0]  # already sorted by overall_score desc
+    st.success(
+        f"🏆 Best run: **{best['name']}** "
+        f"with overall score **{best['overall_score']:.3f}**"
+    )
+    col1, col2, col3, col4 = st.columns(4)
+    for col, key, label in [
+        (col1, "faithfulness", "Faithfulness"),
+        (col2, "answer_relevancy", "Answer Relevancy"),
+        (col3, "context_recall", "Context Recall"),
+        (col4, "context_precision", "Context Precision"),
+    ]:
+        with col:
+            score = best.get(key, 0)
+            st.metric(label, f"{score:.3f}", score_to_label(score))
+
+
+def page_ab_comparison():
+    """Renders A/B Comparison page for two experiment runs."""
+
+    st.title("⚖️ A/B Comparison")
+    st.caption("Compare any two experiments side by side.")
+    st.divider()
+
+    with st.spinner("Loading runs..."):
+        runs = load_wandb_runs()
+
     if len(runs) < 2:
-        st.info("Need at least 2 experiment runs to compare. Run another evaluation with different settings.")
-    else:
-        run_names = [r["name"] for r in runs]
-        
-        col1, col2 = st.columns(2)
+        st.info(
+            "Need at least 2 experiment runs to compare. "
+            "Go to **🔬 Run Evaluation** to run another experiment."
+        )
+        return
+
+    run_names = [r["name"] for r in runs]
+
+    col1, col2 = st.columns(2)
+    with col1:
+        run_a_name = st.selectbox(
+            "Experiment A", run_names, index=0
+        )
+    with col2:
+        run_b_name = st.selectbox(
+            "Experiment B", run_names, 
+            index=min(1, len(run_names)-1)
+        )
+
+    if run_a_name == run_b_name:
+        st.warning("Please select two different experiments.")
+        return
+
+    run_a = next((r for r in runs if r["name"] == run_a_name), {})
+    run_b = next((r for r in runs if r["name"] == run_b_name), {})
+
+    st.divider()
+
+    # Side by side metric comparison
+    st.markdown("#### Metric Comparison")
+    metrics = [
+        ("faithfulness", "Faithfulness"),
+        ("answer_relevancy", "Answer Relevancy"),
+        ("context_recall", "Context Recall"),
+        ("context_precision", "Context Precision"),
+    ]
+
+    for key, label in metrics:
+        score_a = run_a.get(key, 0)
+        score_b = run_b.get(key, 0)
+        delta = score_a - score_b
+        winner = run_a_name if score_a > score_b else run_b_name
+        tied = abs(delta) < 0.001
+
+        col1, col2, col3, col4, col5 = st.columns([2, 1.5, 0.5, 1.5, 2])
         with col1:
-            run_a_name = st.selectbox("Experiment A", run_names, index=0)
+            color_a = "#2ecc71" if score_a >= score_b else "#e74c3c"
+            st.markdown(
+                f"<p style='text-align:right; color:{color_a}; "
+                f"font-size:1.2em; font-weight:bold'>{score_a:.3f}</p>",
+                unsafe_allow_html=True
+            )
         with col2:
-            idx_b = 1 if len(run_names) > 1 else 0
-            run_b_name = st.selectbox("Experiment B", run_names, index=idx_b)
-            
-        run_a = next((r for r in runs if r["name"] == run_a_name), None)
-        run_b = next((r for r in runs if r["name"] == run_b_name), None)
-        
-        if run_a and run_b:
-            metrics_cols = ["faithfulness", "answer_relevancy", "context_recall", "context_precision", "overall_score"]
-            display_names = ["Faithfulness", "Answer Relevancy", "Context Recall", "Context Precision", "Overall Score"]
-            
-            st.divider()
-            st.markdown("### Side by Side Metric Cards")
-            a_wins = 0
-            b_wins = 0
-            insights = []
-            
-            for metric, name in zip(metrics_cols, display_names):
-                a_score = run_a.get(metric, 0.0)
-                b_score = run_b.get(metric, 0.0)
-                diff = a_score - b_score
-                
-                if diff > 0:
-                    a_wins += 1
-                    winner = run_a_name
-                    if diff > 0.1:
-                        insights.append(f"**{name}**: {run_a_name} scores {diff:.2f} higher — suggesting its configuration provides a significant advantage here.")
-                elif diff < 0:
-                    b_wins += 1
-                    winner = run_b_name
-                    if abs(diff) > 0.1:
-                        insights.append(f"**{name}**: {run_b_name} scores {abs(diff):.2f} higher — suggesting its configuration provides a significant advantage here.")
-                else:
-                    winner = "Tie"
-                    
-                c1, c2, c3, c4 = st.columns([2, 1, 1, 2])
-                c1.write(f"**{name}**")
-                
-                color_a = "green" if winner == run_a_name else ("red" if winner == run_b_name else "gray")
-                color_b = "green" if winner == run_b_name else ("red" if winner == run_a_name else "gray")
-                
-                delta_str = f"+{diff:.2f}" if diff > 0 else f"{diff:.2f}"
-                c2.markdown(f"<span style='color:{color_a}; font-size:1.2rem; font-weight:bold;'>{a_score:.3f}</span>", unsafe_allow_html=True)
-                c3.markdown(f"<span style='color:{color_b}; font-size:1.2rem; font-weight:bold;'>{b_score:.3f}</span>", unsafe_allow_html=True)
-                
-                if winner != "Tie":
-                    c4.markdown(f"🏆 Winner: **{winner}** ({delta_str})")
-                else:
-                    c4.markdown("🤝 Tie")
-                
-            st.divider()
-            
-            # Section B — Grouped Bar Chart
-            st.markdown(f"### A/B Comparison: {run_a_name} vs {run_b_name}")
-            
-            fig_bar = go.Figure()
-            x_labels = display_names
-            
-            fig_bar.add_trace(go.Bar(
-                x=x_labels,
-                y=[run_a.get(m, 0.0) for m in metrics_cols],
-                name=run_a_name,
-                marker_color='#3498db'
-            ))
-            fig_bar.add_trace(go.Bar(
-                x=x_labels,
-                y=[run_b.get(m, 0.0) for m in metrics_cols],
-                name=run_b_name,
-                marker_color='#e74c3c'
-            ))
-            
-            fig_bar.add_hline(y=0.7, line_dash="dash", line_color="red", annotation_text="Quality Threshold (0.7)")
-            fig_bar.update_layout(barmode='group', yaxis=dict(range=[0, 1.05]))
-            st.plotly_chart(fig_bar, use_container_width=True)
-            
-            st.divider()
-            
-            # Section C — Verdict
-            st.markdown("### 📝 Verdict")
-            if a_wins > b_wins:
-                st.markdown(f"🏆 **{run_a_name}** wins **{a_wins}** out of {len(metrics_cols)} metrics overall.")
-            elif b_wins > a_wins:
-                st.markdown(f"🏆 **{run_b_name}** wins **{b_wins}** out of {len(metrics_cols)} metrics overall.")
-            else:
-                st.markdown("🤝 It's a **Tie** overall.")
-                
-            if insights:
-                st.markdown("#### Key Differences (>0.1)")
-                for insight in insights:
-                    st.markdown(f"- {insight}")
+            st.markdown(
+                f"<p style='text-align:right'>{run_a_name}</p>",
+                unsafe_allow_html=True
+            )
+        with col3:
+            st.markdown(
+                f"<p style='text-align:center'><b>{label}</b></p>",
+                unsafe_allow_html=True
+            )
+        with col4:
+            st.markdown(run_b_name)
+        with col5:
+            color_b = "#2ecc71" if score_b >= score_a else "#e74c3c"
+            st.markdown(
+                f"<p style='color:{color_b}; "
+                f"font-size:1.2em; font-weight:bold'>{score_b:.3f}</p>",
+                unsafe_allow_html=True
+            )
+
+    st.divider()
+
+    # Grouped bar chart
+    st.markdown("#### Visual Comparison")
+    fig = make_comparison_bar_chart(runs, run_a_name, run_b_name)
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.divider()
+
+    # Verdict
+    st.markdown("#### 🏆 Verdict")
+    metrics_keys = [
+        "faithfulness", "answer_relevancy",
+        "context_recall", "context_precision"
+    ]
+    a_wins = sum(
+        1 for m in metrics_keys 
+        if run_a.get(m, 0) > run_b.get(m, 0)
+    )
+    b_wins = sum(
+        1 for m in metrics_keys 
+        if run_b.get(m, 0) > run_a.get(m, 0)
+    )
+
+    if a_wins > b_wins:
+        st.success(
+            f"**{run_a_name}** wins {a_wins}/4 metrics overall."
+        )
+    elif b_wins > a_wins:
+        st.success(
+            f"**{run_b_name}** wins {b_wins}/4 metrics overall."
+        )
+    else:
+        st.info("Both experiments tied — 2 wins each.")
+
+    # Specific insights for large differences
+    st.markdown("**Metric Insights:**")
+    for key, label in metrics:
+        score_a = run_a.get(key, 0)
+        score_b = run_b.get(key, 0)
+        delta = abs(score_a - score_b)
+        if delta >= 0.05:
+            winner = run_a_name if score_a > score_b else run_b_name
+            loser = run_b_name if score_a > score_b else run_a_name
+            st.markdown(
+                f"- **{label}**: `{winner}` scores "
+                f"{delta:.2f} higher than `{loser}`"
+            )
+
+# ===================================================
+# SECTION 4: MAIN APP + SIDEBAR + ROUTING
+# ===================================================
+
+def main():
+    """Main app entry point — sidebar + page routing."""
+
+    # Sidebar
+    with st.sidebar:
+        st.title("📊 LLM Eval Framework")
+        st.caption("RAG Pipeline Evaluation")
+        st.divider()
+
+        page = st.selectbox(
+            "Navigate",
+            [
+                "🏠 Overview",
+                "🔬 Run Evaluation",
+                "📈 Experiment History",
+                "⚖️ A/B Comparison",
+            ],
+            label_visibility="collapsed",
+        )
+
+        st.divider()
+        st.markdown("**Current Stack**")
+        st.markdown("🔢 Embeddings: Gemini embedding-001")
+        st.markdown("🤖 LLM: Groq llama-3.1-8b-instant")
+        st.markdown("🗄️ Vector DB: Qdrant Cloud")
+        st.markdown("📏 Eval Framework: RAGAS")
+        st.divider()
+        st.markdown(
+            "[🔗 W&B Dashboard](https://wandb.ai/"
+            "dharani-vyrenzo-vyrenzo-in/llm-eval-framework)"
+        )
+        st.markdown(
+            "[💻 GitHub](https://github.com/dharanimurugaraj"
+            "/llm-eval-framework)"
+        )
+
+    # Page routing
+    if page == "🏠 Overview":
+        page_overview()
+    elif page == "🔬 Run Evaluation":
+        page_run_evaluation()
+    elif page == "📈 Experiment History":
+        page_experiment_history()
+    elif page == "⚖️ A/B Comparison":
+        page_ab_comparison()
+
+if __name__ == "__main__":
+    main()
