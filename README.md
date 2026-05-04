@@ -1,12 +1,21 @@
 # LLM Eval Framework
 
 [![LLM Eval CI](https://github.com/dharanimurugaraj/llm-eval-framework/actions/workflows/eval_ci.yml/badge.svg)](https://github.com/dharanimurugaraj/llm-eval-framework/actions/workflows/eval_ci.yml)
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-Streamlit-FF4B4B)](https://llm-eval-frameworkgit-rugym9w2eulg68fnb4q9ct.streamlit.app/)
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/release/python-3120/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 > A production-grade RAG evaluation framework that systematically benchmarks chunking strategies, embedding models, and retrieval quality using RAGAS metrics and Weights & Biases experiment tracking.
 >
 > **Key finding:** Semantic chunking achieves an overall score of **0.84**, a **29% improvement in context recall** (0.57 → 0.85) over fixed-size chunking, with Gemini embedding-001 delivering perfect context precision (1.00) across all strategies.
+
+---
+
+## 🚀 Live Demo
+**[View the live dashboard →](https://llm-eval-frameworkgit-rugym9w2eulg68fnb4q9ct.streamlit.app/)**
+
+Explore 3 chunking strategy experiments with real RAGAS scores,
+W&B experiment tracking, and A/B comparison charts.
 
 ---
 
