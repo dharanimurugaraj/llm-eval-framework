@@ -68,13 +68,25 @@ def load_wandb_runs() -> list[dict]:
             summary = run.summary
             result.append({
                 "name": run.name,
-                "faithfulness": summary.get("faithfulness", 0),
-                "answer_relevancy": summary.get("answer_relevancy", 0),
-                "context_recall": summary.get("context_recall", 0),
-                "context_precision": summary.get("context_precision", 0),
-                "overall_score": summary.get("overall_score", 0),
-                "num_samples": summary.get("num_samples", 0),
-                "created_at": run.created_at,
+                "faithfulness": float(
+                    summary.get("faithfulness") or 0
+                ),
+                "answer_relevancy": float(
+                    summary.get("answer_relevancy") or 0
+                ),
+                "context_recall": float(
+                    summary.get("context_recall") or 0
+                ),
+                "context_precision": float(
+                    summary.get("context_precision") or 0
+                ),
+                "overall_score": float(
+                    summary.get("overall_score") or 0
+                ),
+                "num_samples": int(
+                    summary.get("num_samples") or 0
+                ),
+                "created_at": str(run.created_at),
             })
         return sorted(result, key=lambda x: x["overall_score"], reverse=True)
     except Exception:
@@ -518,7 +530,9 @@ def page_experiment_history():
         "Context Recall", "Context Precision"
     ]
     for col in score_cols:
-        df_display[col] = df_display[col].round(3)
+        df_display[col] = pd.to_numeric(
+            df_display[col], errors="coerce"
+        ).fillna(0.0).round(3)
 
     st.dataframe(
         df_display,
